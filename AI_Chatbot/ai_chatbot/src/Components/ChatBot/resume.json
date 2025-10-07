@@ -1,0 +1,190 @@
+{
+  "name": "Sudhanshu Kakkar",
+  "title": "AI Research Assistant | MS in Applied AI at Stevens | Ex-FIS | Ex-TCS | Full-Stack Developer | Skilled in React & Spring Boot Microservices",
+  "contact": {
+    "phone": "+1 732-500-2147",
+    "email": "emsudhanshu@gmail.com",
+    "linkedin": "https://linkedin.com/in/sudhanshu-kakkar",
+    "portfolio": "https://emsudhanshu.github.io/portfolio/"
+  },
+  "hobbies": ["Traveling", "Photography", "Cycling", "Table Tennis"],
+  "education": [
+    {
+      "degree": "Master’s Degree - Applied Artificial Intelligence",
+      "institution": "Stevens Institute of Technology",
+      "location": "Hoboken, New Jersey, United States",
+      "year": "2025 – 2026 (Expected)"
+    },
+    {
+      "degree": "Bachelor’s Degree - Computer Science Engineering",
+      "institution": "HMRITM, Guru Gobind Singh Indraprastha University",
+      "location": "Delhi, India",
+      "year": "2015 – 2019",
+      "cgpa": "8.4"
+    }
+  ],
+  "skills": {
+    "machine_learning": [
+      "Python",
+      "BERT Fine-Tuning",
+      "NLP",
+      "Text Classification",
+      "HuggingFace Transformers",
+      "TensorFlow",
+      "scikit-learn"
+    ],
+    "frontend": [
+      "HTML",
+      "CSS",
+      "JavaScript",
+      "Bootstrap",
+      "Material UI",
+      "React",
+      "React Native",
+      "Redux Toolkit",
+      "Micro-Frontends"
+    ],
+    "backend": ["Node.js", "Java Spring Boot", "Microservices"],
+    "agentic_ai": ["CrewAI", "LangChain"],
+    "database": ["PostgreSQL", "MongoDB"],
+    "tools": ["Maven", "NPM", "Git", "Bitbucket", "Jira"],
+    "methodologies": ["Agile", "Scrum", "Sprint Planning", "Retrospectives"]
+  },
+  "experience": [
+    {
+      "company": "STEVENS INSTITUTE OF TECHNOLOGY",
+      "location": "Hoboken, United States",
+      "roles": [
+        {
+          "title": "Research Assistant – AI and ML",
+          "period": "May 2025 – Present",
+          "highlights": [
+            "Extending my existing multi class depression detection project with a custom non pretrained ML model.",
+            "Researching model architectures to classify depression levels from text.",
+            "Evaluating performance to improve prediction reliability."
+          ]
+        }
+      ]
+    },
+    {
+      "company": "ONCREF",
+      "location": "India",
+      "roles": [
+        {
+          "title": "AI Engineer and Developer",
+          "period": "Jun 2025 – July 2025",
+          "highlights": [
+            "Enhanced existing web application to improve UI, usability, performance, and user experience",
+            "Collaborated on building a feature that leveraged agentic AI (Crew AI) to automate web scraping, convert unstructured data into structured formats, and enrich it through LLM calls for generating actionable insights."
+          ]
+        }
+      ]
+    },
+    {
+      "company": "Fidelity Information Services (FIS)",
+      "location": "Bengaluru, India",
+      "roles": [
+        {
+          "title": "Senior Software Development Engineer (Full Stack Developer)",
+          "period": "Jun 2024 – Jan 2025",
+          "highlights": [
+            "Developed a standalone payment gateway app in React JS processing 400+ transactions daily.",
+            "Built 15G/H submission and download app using React JS and Java Spring Boot microservices.",
+            "Automated build generation and obfuscation using Node.js, saving 2 hours daily.",
+            "Led architectural improvements for optimization and AppSec score of 94%.",
+            "Created boilerplate code generation scripts saving 15 min/module.",
+            "Led and mentored a 5-member team ensuring code quality via reviews and pair programming."
+          ]
+        },
+        {
+          "title": "Software Development Engineer II (Full Stack Developer)",
+          "period": "Aug 2023 – May 2024",
+          "highlights": [
+            "Developed backend microservices using Java Spring Boot and PostgreSQL.",
+            "Improved frontend speed by 50% using Micro-Frontends and Redux Toolkit.",
+            "Delivered and maintained 6+ net banking modules (Accounts, Payee, Fund Transfers, etc.)."
+          ]
+        },
+        {
+          "title": "Software Development Engineer II (Front End Developer)",
+          "period": "Nov 2021 – Jul 2023",
+          "highlights": [
+            "Built Internet Banking UI with React, Redux, and Material UI reducing load time by 50%.",
+            "Created 50+ reusable components for faster, consistent UI assembly.",
+            "Collaborated with UX/UI, backend teams in agile cycles for product delivery."
+          ]
+        }
+      ]
+    },
+    {
+      "company": "Tata Consultancy Services (TCS)",
+      "location": "Indore, India",
+      "roles": [
+        {
+          "title": "System Engineer (Front End Developer)",
+          "period": "Aug 2019 – Nov 2021",
+          "highlights": [
+            "Developed logistics mobile app using React Native, Redux, and Material UI.",
+            "Resolved 200+ QA defects improving app stability and performance.",
+            "Deployed and maintained the app across platforms.",
+            "Led weekly demos to stakeholders and integrated feedback efficiently."
+          ]
+        }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Multi-Class Depression Detection Using BERT",
+      "description": "Machine learning web app to identify levels of depression based on text inputs.",
+      "year": "May 2025"
+    },
+    {
+      "name": "Dynamic Attendance Manager",
+      "description": "Web platform for institutions to record and manage attendance data efficiently.",
+      "year": "Feb 2019"
+    },
+    {
+      "name": "Ultrasonic Radar",
+      "description": "Arduino-based radar system with visualization using Processing IDE.",
+      "year": "Jul 2016"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "AI Coding Agents with GitHub Copilot and Cursor",
+      "issuer": "LinkedIn Learning",
+      "year": "Jul 2025"
+    },
+    {
+      "name": "Building AI Agents and Automate Workflows",
+      "issuer": "LinkedIn Learning",
+      "year": "Jul 2025"
+    },
+    {
+      "name": "Generative AI: Working with Large Language Models",
+      "issuer": "LinkedIn Learning",
+      "year": "Jun 2025"
+    },
+    {
+      "name": "JavaScript Maps and Sets",
+      "issuer": "LinkedIn Learning",
+      "year": "Jun 2022"
+    },
+    {
+      "name": "MEAN Stack",
+      "issuer": "Brain Mentors Pvt. Ltd.",
+      "year": "Apr 2018"
+    },
+    {
+      "name": "Embedded Systems Using Arduino",
+      "issuer": "Delhi Technological University",
+      "year": "Jul 2016"
+    },
+    {
+      "name": "Web Technologies",
+      "issuer": "HMR Institute of Technology & Management",
+      "year": "Apr 2016"
+    }
+  ]
+}
