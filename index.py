@@ -1,237 +1,139 @@
-import streamlit as st
 import os
-import base64
-import json
-import time
-import requests
-from typing import List, Dict, Any
+import sys
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+# Changed from langchain_openai to langchain_community for Ollama
+from langchain_community.embeddings import OllamaEmbeddings # <--- OLLAMA IMPORT
+from langchain_community.vectorstores import Chroma
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
 
-# --- Configuration (Hardcoded as requested) ---
-# NOTE: Using the key provided in your last message. Please ensure it is a valid, live key.
-# WARNING: Storing keys directly in code is unsafe for production environments.
-GEMINI_API_KEY = "AIzaSyBzIkcVOKwnK21YP4l5mi79Up_0iV3Wa60"
-# NOTE: Set your resume file path here.
-RESUME_FILE_PATH = "./Kakkar,Sudhanshu.pdf" 
+# --- CONFIGURATION ---
+FILE_PATH = "./Kakkar,Sudhanshu.pdf"
+CHROMA_DB_PATH = "./chroma_db_resume"
+LLM_MODEL = "gemini-2.0-flash"
+EMBEDDING_MODEL = "Ollama default (usually llama2)" 
 
-# Note: The model is gemini-2.5-flash-preview-05-20 for multimodal tasks via the REST API.
-GEMINI_MODEL_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent"
+def setup_rag_chain():
+    """Sets up the LLM, RAG components, and the final LangChain retrieval chain."""
+    
+    # ----------------------------------------------------------------------
+    # FIX 1: Read the key and check for both common variable names.
+    # ----------------------------------------------------------------------
+    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
-# --- Helper Functions ---
+    # --- API Key Check ---
+    if not gemini_key:
+        print("ERROR: GEMINI_API_KEY or GOOGLE_API_KEY environment variable not found.")
+        print("Please set your Google Gemini API key before running the script.")
+        print("NOTE: OllamaEmbeddings also requires the Ollama server to be running locally.")
+        sys.exit(1)
 
-def encode_local_file_to_base64(file_path):
-    """Reads a local file and returns its base64 encoded string."""
+    print("1. Initializing LLM and Embeddings...")
+    
+    # ----------------------------------------------------------------------
+    # FIX 2: Explicitly pass the API key to the LLM to resolve the 403 error.
+    # ----------------------------------------------------------------------
+    llm = ChatGoogleGenerativeAI(
+        model=LLM_MODEL,
+        google_api_key=gemini_key  # <-- CRUCIAL: Ensures correct authentication scope
+    )
+    
+    # Initialize OllamaEmbeddings
+    # Ollama server MUST be running for this to work.
     try:
-        # Check if file exists and provide diagnostic path
-        absolute_path = os.path.abspath(file_path)
-        
-        if not os.path.exists(file_path):
-            # This error is now handled in the main setup block for better UI flow
-            return None
-            
-        with open(file_path, "rb") as f:
-            pdf_bytes = f.read()
-            
-        # Encode the bytes to base64 string
-        return base64.b64encode(pdf_bytes).decode("utf-8")
-        
+        embeddings = OllamaEmbeddings()
     except Exception as e:
-        st.error(f"An error occurred while reading or encoding the PDF: {e}")
-        return None
+        print("ERROR: Could not initialize OllamaEmbeddings.")
+        print("Ensure the Ollama server is running locally and an embedding model is pulled (e.g., 'ollama pull llama2').")
+        print(f"Details: {e}")
+        sys.exit(1)
 
-def generate_response(prompt: str, encoded_pdf_data: str, history: List[Dict[str, Any]], api_key: str) -> str:
-    """
-    Sends the prompt, history, and resume data to the Gemini API.
-    Handles conversation turn context and exponential backoff.
-    """
-    # The key check is now handled in the setup block, but we keep a final runtime check
-    if not api_key:
-        return "API Key is missing. Please ensure it is correctly hardcoded."
+    # --- Data Ingestion and Indexing ---
+    print(f"2. Loading document: {FILE_PATH}...")
+    try:
+        loader = PyPDFLoader(FILE_PATH)
+        documents = loader.load()
+    except Exception as e:
+        print(f"ERROR: Could not load the PDF file. Make sure '{FILE_PATH}' exists.")
+        print(f"Details: {e}")
+        sys.exit(1)
 
-    # 1. Define System Instruction to guide the model's behavior (Refined for stricter factual output)
-    system_instruction = (
-        "You are a strict, expert career consultant who operates as a knowledge base. "
-        "Your responses **MUST** be factual and derived **EXCLUSIVELY** from the provided resume (PDF file). "
-        "Do not use external knowledge. For any detail not explicitly found in the document, "
-        "you must clearly and politely state that the information is unavailable in the resume."
+    print("3. Splitting text into chunks...")
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len
+    )
+    docs = text_splitter.split_documents(documents)
+
+    print(f"Created {len(docs)} document chunks.") # Added a confirmation print
+
+    print("4. Creating/Loading Vector Store (ChromaDB)...")
+    # This automatically creates the vectors if the directory is new
+    vectorstore = Chroma.from_documents(
+        documents=docs,
+        embedding=embeddings,
+        persist_directory=CHROMA_DB_PATH
     )
 
-    # 2. Build the current message content
-    current_user_message_parts = [{"text": prompt}]
-
-    # Check if this is the first turn (history only contains system instructions or is empty)
-    is_first_turn = True
-    for msg in history:
-        if msg.get("role") == "user":
-            is_first_turn = False
-            break
-
-    # Only attach the PDF data to the very first user message
-    if is_first_turn and encoded_pdf_data:
-        current_user_message_parts.append(
-            {
-                "inlineData": {
-                    "mimeType": "application/pdf",
-                    "data": encoded_pdf_data,
-                }
-            }
-        )
-
-    # 3. Prepare contents for the API call
-    api_history = []
-    for message in history:
-        # Map Streamlit's 'assistant' role to the Gemini API's 'model' role
-        role = message["role"]
-        api_role = "model" if role == "assistant" else "user"
-        
-        # Only include the text part for subsequent history messages
-        text_part = message.get("content", "")
-        if text_part and isinstance(text_part, str):
-            api_history.append({"role": api_role, "parts": [{"text": text_part}]})
-
-    # Add the current user message
-    contents = api_history + [{
-        "role": "user",
-        "parts": current_user_message_parts
-    }]
-
-    # 4. Construct the full API payload
-    payload = {
-        "contents": contents,
-        "systemInstruction": {"parts": [{"text": system_instruction}]},
-        "generationConfig": {"temperature": 0.1}
-    }
-
-    # 5. API Call with Exponential Backoff
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            api_url = f"{GEMINI_MODEL_URL}?key={api_key}"
-
-            response = requests.post(
-                api_url,
-                headers={'Content-Type': 'application/json'},
-                data=json.dumps(payload),
-                timeout=45 
-            )
-            response.raise_for_status()
-
-            result = response.json()
-
-            if result.get("candidates") and result["candidates"][0].get("content"):
-                return result["candidates"][0]["content"]["parts"][0]["text"]
-
-            return "The model returned an empty response. Check the console for errors."
-
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 429 and attempt < max_retries - 1:
-                sleep_time = 2 ** attempt
-                time.sleep(sleep_time)
-            elif attempt < max_retries - 1 and response.status_code >= 500:
-                time.sleep(2) 
-            else:
-                try:
-                    error_detail = response.json().get('error', {}).get('message', 'No detail available.')
-                    return f"API Error ({response.status_code}): {error_detail}"
-                except:
-                    return f"API Error ({response.status_code}): Could not parse error message."
-
-        except requests.exceptions.RequestException as e:
-            if attempt < max_retries - 1:
-                time.sleep(2)
-            else:
-                return f"Connection Error: Failed after {max_retries} attempts."
-
-    return "An unknown error occurred."
-
-
-# --- Streamlit App Layout ---
-
-st.set_page_config(page_title="Gemini Resume Analyzer", layout="wide")
-
-st.title("📄 AI Resume Chatbot")
-st.markdown("This chatbot uses a hardcoded PDF file and API key for a streamlined experience.")
-st.divider()
-
-# --- Initial Setup (Hardcoded File and Key Handling) ---
-
-# Check if file has been processed in session state
-if "file_processed" not in st.session_state:
-    st.session_state.file_processed = False
-    st.session_state.messages = []
-    st.session_state.encoded_pdf = None
-    st.session_state.setup_status_ran = False
-
-# Process file only once upon the first run
-if not st.session_state.file_processed:
-    with st.sidebar:
-        st.header("Setup Status")
-        st.info("Attempting to load hardcoded file and configuration...")
-        
-        # 1. API Key Check
-        if GEMINI_API_KEY == "YOUR_HARDCODED_GEMINI_API_KEY_HERE":
-            st.error("Setup Failed: Please replace the placeholder API key with your actual key.")
-            st.session_state.setup_status_ran = True
-        
-        # 2. File Path Check
-        elif not os.path.exists(RESUME_FILE_PATH):
-            st.error("Setup Failed: File Not Found!")
-            st.warning(f"The application is looking for **`{RESUME_FILE_PATH}`** at this location: **`{os.path.abspath(RESUME_FILE_PATH)}`**.")
-            st.error("Please move the PDF file into the same directory as this script.")
-            st.session_state.setup_status_ran = True
-
-        # 3. Successful Load Attempt
-        else:
-            st.session_state.encoded_pdf = encode_local_file_to_base64(RESUME_FILE_PATH)
-            
-            if st.session_state.encoded_pdf:
-                st.session_state.file_processed = True
-                st.success(f"File '{RESUME_FILE_PATH}' loaded and encoded ({len(st.session_state.encoded_pdf)//1024} KB).")
-                st.success(f"API Key set internally. App is ready to chat!")
-            else:
-                st.error("Setup failed. Failed to encode PDF. Check the console for details.")
-            st.session_state.setup_status_ran = True
-
-
-# 1. Sidebar for Configuration (Display status only)
-with st.sidebar:
-    if st.session_state.file_processed:
-        st.header("Configuration")
-        st.code(f"API Key: Set (Internal)")
-        st.code(f"Resume: {RESUME_FILE_PATH}")
-    elif st.session_state.setup_status_ran:
-        st.warning("Setup needs attention. See errors above.")
-
-
-# 2. Main Chat Interface
-
-# Display chat messages from history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# Accept user input
-is_disabled = not st.session_state.file_processed or GEMINI_API_KEY == "AIzaSyBzIkcVOKwnK21YP4l5mi79Up_0iV3Wa60"
-
-if prompt := st.chat_input("Ask a question about the resume...", disabled=is_disabled):
+    # --- LangChain Chain Setup ---
+    retriever = vectorstore.as_retriever()
     
-    if not st.session_state.file_processed:
-        st.error("Cannot chat. File failed to load during setup.")
-    else:
-        # Add user message to chat history and display
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    system_prompt = (
+        "You are an expert Resume Analyst. "
+        "Answer the user's question only based on the provided resume context. "
+        "If the answer is not in the context, state that you cannot find the information in the resume. "
+        "Do not use external knowledge. "
+        "\n\nCONTEXT:\n{context}"
+    )
 
-        # Get response from the model
-        with st.chat_message("assistant"):
-            with st.spinner("Analyzing resume..."):
-                response = generate_response(
-                    prompt, 
-                    st.session_state.encoded_pdf, 
-                    st.session_state.messages, 
-                    GEMINI_API_KEY # Use the hardcoded key
-                )
-                st.markdown(response)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            ("human", "{input}"),
+        ]
+    )
+    
+    document_chain = create_stuff_documents_chain(llm, prompt)
+    
+    rag_chain = create_retrieval_chain(retriever, document_chain)
+    
+    return rag_chain
+
+def run_qa_bot(rag_chain):
+    """Runs the interactive question and answer loop."""
+    print("\n" + "="*50)
+    print("      🚀 Personalized Resume Q&A Bot is Ready 🚀")
+    print("="*50)
+    print("Ask questions about the resume. Type 'exit' or 'quit' to stop.")
+    print("NOTE: Ensure Ollama is running and accessible (e.g., via http://localhost:11434).")
+
+    while True:
+        question = input("\nYour Question: ")
+        if question.lower() in ["exit", "quit"]:
+            print("Goodbye! The ChromaDB vector store is saved locally.")
+            break
         
-        # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        try:
+            # Invoke the RAG chain with the user's question
+            print("Processing...")
+            response = rag_chain.invoke({"input": question})
+
+            answer = response["answer"]
+            
+            # Extract unique sources for reference
+            sources = [doc.metadata.get('source', 'Unknown Source') for doc in response["context"]]
+            unique_sources = list(set(sources))
+            
+            print("\n[BOT] Answer:", answer)
+            print("\n[BOT] Source Files Used:", unique_sources)
+
+        except Exception as e:
+            print(f"\n[BOT] An error occurred: {e}")
+
+if __name__ == "__main__":
+    rag_chain = setup_rag_chain()
+    run_qa_bot(rag_chain)
