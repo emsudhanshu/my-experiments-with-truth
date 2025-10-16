@@ -1,182 +1,124 @@
+# This script implements a simple Retrieval-Augmented Generation (RAG) system
+# with conversation memory for a Proof of Concept (PoC) using LlamaIndex and Ollama.
+#
+# PREREQUISITES:
+# 1. Ollama server must be running locally (usually on port 11434).
+# 2. The required models must be pulled:
+#    ollama pull llama3
+#    ollama pull nomic-embed-text
+# 3. Install Python dependencies:
+#    pip install llama-index llama-index-llms-ollama llama-index-embeddings-ollama pydantic
+#    pip install pypdf llama-index-readers-file
+#
+# NOTE: This version replaces the simple QueryEngine with a ChatEngine to enable follow up questions.
+
 import os
 import sys
-import shutil 
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+# Import necessary LlamaIndex components for chat and indexing
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
+# We will create the chat engine directly from the index, making the CondenseQuestionChatEngine import optional
+from llama_index.llms.ollama import Ollama as OllamaLLM
+from llama_index.embeddings.ollama import OllamaEmbedding
 
-# --- CONFIGURATION ---
-# NOTE: The file name is updated here to match the attached document's name
-FILE_PATH = "project_document.pdf" 
-CHROMA_DB_PATH = "./chroma_db_resume"
-LLM_MODEL = "gemini-2.0-flash"
-EMBEDDING_MODEL = "Ollama default (usually llama2)"
+# --- Configuration ---
+# Ollama runs on http://localhost:11434 by default.
+OLLAMA_BASE_URL = "http://localhost:11434"
+LLM_MODEL = "llama3" # LLM for generation
+EMBEDDING_MODEL = "nomic-embed-text" # Embedding model for vector creation
 
-# Global variable to store chat history
-chat_history: list[BaseMessage] = []
+# Path to the PDF file to be loaded
+PDF_FILE_PATH = "project_document.pdf" 
 
-def setup_conversational_rag_chain():
-    """Sets up the LLM, RAG components, and the final LangChain conversational retrieval chain."""
-    
-    # --- API Key Check ---
-    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if not gemini_key:
-        print("ERROR: GEMINI_API_KEY or GOOGLE_API_KEY environment variable not found.")
-        print("Please set your Google Gemini API key before running the script.")
-        sys.exit(1)
+def initialize_rag_system():
+    """Initializes the Ollama models and creates the VectorStoreIndex."""
+    print("--- 1. Initializing RAG System ---")
 
-    print("1. Initializing LLM and Embeddings...")
-    
-    # Initialize LLM
-    llm = ChatGoogleGenerativeAI(
-        model=LLM_MODEL,
-        google_api_key=gemini_key
-    )
-    
-    # Initialize OllamaEmbeddings
+    # 1. Setup Ollama LLM and Embedding Model
     try:
-        # Note: You must have Ollama server running and a model pulled (e.g., 'ollama pull llama2')
-        embeddings = OllamaEmbeddings() 
+        # Use a single instance for both RAG and chat context condensation
+        llm = OllamaLLM(model=LLM_MODEL, base_url=OLLAMA_BASE_URL)
+        embed_model = OllamaEmbedding(model_name=EMBEDDING_MODEL, base_url=OLLAMA_BASE_URL)
+        print(f"✅ Ollama LLM ({LLM_MODEL}) and Embedding ({EMBEDDING_MODEL}) configured.")
     except Exception as e:
-        print("ERROR: Could not initialize OllamaEmbeddings.")
-        print("Ensure the Ollama server is running locally and an embedding model is pulled (e.g., 'ollama pull llama2').")
-        print(f"Details: {e}")
+        print(f"❌ Failed to connect to Ollama. Is the server running at {OLLAMA_BASE_URL}? (Error: {e})")
+        if "model" in str(e) and "not found" in str(e):
+             print(f"HINT: Please ensure you ran 'ollama pull {LLM_MODEL}' and 'ollama pull {EMBEDDING_MODEL}' in your terminal.")
         sys.exit(1)
 
-    # --- Data Ingestion and Indexing ---
-    print(f"2. Loading document: {FILE_PATH}...")
+    # 2. Load the Document from PDF
+    print(f"--- 2. Loading Document from {PDF_FILE_PATH} ---")
     try:
-        loader = PyPDFLoader(FILE_PATH) 
-        documents = loader.load()
+        documents = SimpleDirectoryReader(input_files=[PDF_FILE_PATH]).load_data()
+        print(f"✅ Document loaded successfully. Found {len(documents)} text chunks/pages.")
     except Exception as e:
-        # NOTE: For local execution, you MUST ensure the specified PDF file exists in the directory.
-        print(f"ERROR: Could not load the PDF file. Make sure '{FILE_PATH}' exists.")
-        print(f"Details: {e}")
+        print(f"❌ Failed to load document from {PDF_FILE_PATH}. (Error: {e})")
+        print("HINT: Ensure the 'project_document.pdf' file exists in the same directory as the script, and you have installed 'pypdf' and 'llama-index-readers-file'.")
         sys.exit(1)
 
-    # --- FINE TUNED CHUNKING (Optimized for concise facts) ---
-    print("3. Splitting text into chunks with fine tuned settings (chunk_size=400)...")
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=400, # Reduced for fact precision
-        chunk_overlap=80, 
-        length_function=len
-    )
-    docs = text_splitter.split_documents(documents)
-    print(f"Created {len(docs)} document chunks.")
 
-    # 4. Creating/Loading Vector Store (ChromaDB)
-    print("4. Creating NEW Vector Store (ChromaDB) with fresh index...")
-    vectorstore = Chroma.from_documents(
-        documents=docs,
-        embedding=embeddings,
-        persist_directory=CHROMA_DB_PATH
+    # 3. Create Index and Vector Database
+    print("--- 3. Creating Index and Vector Database ---")
+    try:
+        index = VectorStoreIndex.from_documents(
+            documents,
+            embed_model=embed_model,
+            show_progress=True
+        )
+        print("✅ Index created successfully. Document embeddings stored.")
+    except Exception as e:
+        print(f"❌ Failed to create the index. (Error: {e})")
+        sys.exit(1)
+
+    # 4. Create the Chat Engine (RAG pipeline with memory)
+    # Use index.as_chat_engine() which automatically uses the CondensePlusContext mode 
+    # for follow-up questions, simplifying the setup and avoiding the TypeError.
+    chat_engine = index.as_chat_engine(
+        chat_mode="condense_question", # This mode provides conversation memory
+        llm=llm,
+        similarity_top_k=3, # Retriever setting
+        verbose=True # Set to True to see the rewritten question
     )
     
-    # *** CRITICAL FIX: Increased retrieval (k=3) ***
-    # This grabs 3 chunks to ensure full lists (like team members) are retrieved.
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3}) 
-    
-    # --- LangChain Chain Setup for CONVERSATION ---
-    
-    # 1. History Aware Retriever Chain: Condenses question and history into a standalone search query.
-    history_aware_prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                "Given a conversational history and a follow up question, rephrase the follow up question "
-                "to be a standalone question for document retrieval. Do NOT answer the question, just rephrase it. "
-                "Example: 'Where did he work next?' -> 'What was his next job after [previous job]?'.",
-            ),
-            ("placeholder", "{chat_history}"),
-            ("human", "{input}"),
-        ]
-    )
-    history_aware_retriever = create_history_aware_retriever(
-        llm, retriever, history_aware_prompt
-    )
+    print("✅ Chat Engine with Conversation Memory is ready.")
 
-    # 2. Document Chain: Answers the question using the retrieved context.
-    # --- REVISED SYSTEM PROMPT ---
-    document_chain_prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                "You are an expert Master's Project Analyst. "
-                "Your task is to answer the user's questions about the project proposal using **only** the provided document context. "
-                "If the information is not in the context, state clearly that you cannot find the details in the project proposal. "
-                "Do not use any external knowledge. "
-                "Ensure all responses adhere to the user's custom instruction: **Never use hyphens when responding**. "
-                "For simple, factual questions (like 'What are the team members names?' or 'What is the deadline for data cleaning?'), provide the answer **directly, concisely, and without introductory phrases or extra sentences**. "
-                "Example: 'Fiza Pathan, Azizul Haque, Sudhanshu Kakkar' or '03/31/2025'."
-                "\n\nCONTEXT:\n{context}",
-            ),
-            ("placeholder", "{chat_history}"),
-            ("human", "{input}"),
-        ]
-    )
-    document_chain = create_stuff_documents_chain(llm, document_chain_prompt)
+    return chat_engine
 
-    # 3. Conversational Retrieval Chain: Combines the history aware retriever and the document chain.
-    conversational_rag_chain = create_retrieval_chain(
-        history_aware_retriever, document_chain
-    )
-    
-    return conversational_rag_chain
-
-def run_qa_bot(rag_chain):
-    """Runs the interactive question and answer loop, managing chat history."""
-    global chat_history
-    print("\n" + "="*50)
-    print("      🚀 Conversational Project Q&A Bot is Ready 🚀")
-    print("="*50)
-    print("Ask questions about the project document. Followup questions are now supported! Type 'exit' or 'quit' to stop.")
-    print("NOTE: Ensure Ollama is running and accessible (e.g., via http://localhost:11434).")
+def chat_loop(chat_engine):
+    """Starts the interactive chat loop."""
+    print("\n" * 2)
+    print("==============================================")
+    print(f"🤖 Conversational RAG Bot (Ollama/{LLM_MODEL})")
+    print("==============================================")
+    print("Ask me anything, including follow up questions!")
+    print("Type 'exit' or 'quit' to end the chat.")
 
     while True:
-        question = input("\nYour Question: ")
-        if question.lower() in ["exit", "quit"]:
-            print("Goodbye! The ChromaDB vector store is saved locally.")
+        prompt = input("\nYour Query > ")
+        if prompt.lower() in ["quit", "exit"]:
+            print("👋 Session ended. Goodbye!")
             break
-        
+
+        if not prompt.strip():
+            continue
+
         try:
-            # Invoke the RAG chain with the user's question AND chat history
-            print("Processing...")
-            response = rag_chain.invoke(
-                {"input": question, "chat_history": chat_history}
-            )
+            # The chat engine manages the conversation history automatically
+            response = chat_engine.chat(prompt)
 
-            answer = response["answer"]
-            
-            # CRUCIAL STEP: Update chat history with the new turn for memory
-            chat_history.append(HumanMessage(content=question))
-            chat_history.append(AIMessage(content=answer))
+            print("\n🤖 Bot Response:")
+            print("-" * 50)
+            print(response.response)
+            print("-" * 50)
 
-            # Extract unique sources for reference
-            sources = [doc.metadata.get('source', 'Unknown Source') for doc in response.get("context", [])]
-            unique_sources = list(set(sources))
-            
-            print("\n[BOT] Answer:", answer)
-            print("\n[BOT] Source Files Used:", unique_sources)
+            # NOTE: If verbose=True is set on the chat_engine, you will see the
+            # rewritten question (the 'context condensation') in the console output.
 
         except Exception as e:
-            print(f"\n[BOT] An error occurred: {e}")
+            print(f"An error occurred during query generation: {e}")
+            print("Ensure Ollama is running and the models are available.")
+
 
 if __name__ == "__main__":
-    # CRITICAL FIX IMPLEMENTATION
-    # Automatically delete the old vector store to guarantee a fresh index with k=3
-    if os.path.exists(CHROMA_DB_PATH):
-        print(f"4a. Found existing database. Deleting '{CHROMA_DB_PATH}' to ensure fresh index.")
-        try:
-            shutil.rmtree(CHROMA_DB_PATH)
-        except OSError as e:
-            print(f"Error: Could not delete old database directory: {e.strerror}. Cannot proceed.")
-            sys.exit(1)
-
-    rag_chain = setup_conversational_rag_chain()
-    run_qa_bot(rag_chain)
+    # Ensure all models and index are ready before starting the chat
+    rag_engine = initialize_rag_system()
+    chat_loop(rag_engine)
