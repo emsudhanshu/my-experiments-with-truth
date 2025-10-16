@@ -1,6 +1,4 @@
-# This script implements a simple Retrieval-Augmented Generation (RAG) system
-# with conversation memory for a Proof of Concept (PoC) using LlamaIndex and Ollama.
-#
+# This script implements a simple Retrieval-Augmented Generation (RAG) system#
 # PREREQUISITES:
 # 1. Ollama server must be running locally (usually on port 11434).
 # 2. The required models must be pulled:
@@ -12,22 +10,25 @@
 #
 # NOTE: This version replaces the simple QueryEngine with a ChatEngine to enable follow up questions.
 
-import os
+# tech stack
+# LLM -> llama3 - local
+# embedding model -> omic-embed-text - local
+# Server for LLM and embedding model -> Ollama
+# Vector DB -> LlamaIndex
+# Orchestration Framework -> LlamaIndex
+    
+    
 import sys
-# Import necessary LlamaIndex components for chat and indexing
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
-# We will create the chat engine directly from the index, making the CondenseQuestionChatEngine import optional
 from llama_index.llms.ollama import Ollama as OllamaLLM
 from llama_index.embeddings.ollama import OllamaEmbedding
 
-# --- Configuration ---
-# Ollama runs on http://localhost:11434 by default.
 OLLAMA_BASE_URL = "http://localhost:11434"
 LLM_MODEL = "llama3" # LLM for generation
 EMBEDDING_MODEL = "nomic-embed-text" # Embedding model for vector creation
 
 # Path to the PDF file to be loaded
-PDF_FILE_PATH = "project_document.pdf" 
+PDF_FILE_PATH = "Kakkar,Sudhanshu.pdf" 
 
 def initialize_rag_system():
     """Initializes the Ollama models and creates the VectorStoreIndex."""
@@ -86,10 +87,9 @@ def initialize_rag_system():
 def chat_loop(chat_engine):
     """Starts the interactive chat loop."""
     print("\n" * 2)
+    print(f"🤖 Resume - Conversational RAG Bot (Ollama/{LLM_MODEL})")
     print("==============================================")
-    print(f"🤖 Conversational RAG Bot (Ollama/{LLM_MODEL})")
-    print("==============================================")
-    print("Ask me anything, including follow up questions!")
+    print("Ask me anything, about the resume")
     print("Type 'exit' or 'quit' to end the chat.")
 
     while True:
